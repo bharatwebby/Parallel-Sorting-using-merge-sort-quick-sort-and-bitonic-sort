@@ -1,0 +1,146 @@
+#include <omp.h>
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <algorithm>
+#include <climits>
+
+void printArray(const std::vector<int>& arr) {
+    for (int num : arr) std::cout << num << " ";
+    std::cout << std::endl;
+}
+
+// Merge Sort
+void merge(std::vector<int>& arr, int left, int mid, int right) {
+    int n1 = mid - left + 1;
+    int n2 = right - mid;
+    std::vector<int> L(n1), R(n2);
+
+    for (int i = 0; i < n1; i++) L[i] = arr[left + i];
+    for (int i = 0; i < n2; i++) R[i] = arr[mid + 1 + i];
+
+    int i = 0, j = 0, k = left;
+    while (i < n1 && j < n2) arr[k++] = (L[i] <= R[j]) ? L[i++] : R[j++];
+    while (i < n1) arr[k++] = L[i++];
+    while (j < n2) arr[k++] = R[j++];
+}
+
+void parallelMergeSort(std::vector<int>& arr, int left, int right) {
+    if (left < right) {
+        int mid = left + (right - left) / 2;
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            parallelMergeSort(arr, left, mid);
+            #pragma omp section
+            parallelMergeSort(arr, mid + 1, right);
+        }
+        merge(arr, left, mid, right);
+    }
+}
+
+// Quick Sort
+int partition(std::vector<int>& arr, int low, int high) {
+    int pivot = arr[high];
+    int i = low - 1;
+    for (int j = low; j < high; j++) {
+        if (arr[j] <= pivot) std::swap(arr[++i], arr[j]);
+    }
+    std::swap(arr[i + 1], arr[high]);
+    return i + 1;
+}
+
+void parallelQuickSort(std::vector<int>& arr, int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            parallelQuickSort(arr, low, pi - 1);
+            #pragma omp section
+            parallelQuickSort(arr, pi + 1, high);
+        }
+    }
+}
+
+// Bitonic Sort
+void bitonicMerge(std::vector<int>& arr, int low, int count, bool dir) {
+    if (count > 1) {
+        int k = count / 2;
+        for (int i = low; i < low + k; i++) {
+            if (dir == (arr[i] > arr[i + k])) std::swap(arr[i], arr[i + k]);
+        }
+        bitonicMerge(arr, low, k, dir);
+        bitonicMerge(arr, low + k, k, dir);
+    }
+}
+
+void bitonicSort(std::vector<int>& arr, int low, int count, bool dir) {
+    if (count > 1) {
+        int k = count / 2;
+        
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            bitonicSort(arr, low, k, true);
+            #pragma omp section
+            bitonicSort(arr, low + k, k, false);
+        }
+        
+        bitonicMerge(arr, low, count, dir);
+    }
+}
+
+int main() {
+    // User input for data size and elements
+    int n;
+    std::cout << "Enter the number of elements: ";
+    std::cin >> n;
+
+    std::vector<int> data(n);
+    std::cout << "Enter the elements:\n";
+    for (int i = 0; i < n; i++) {
+        std::cin >> data[i];
+    }
+    
+    std::cout << "\nOriginal Array: ";
+    printArray(data);
+
+    // Parallel Merge Sort
+    std::vector<int> mergeSortData = data;
+    auto start = std::chrono::high_resolution_clock::now();
+    parallelMergeSort(mergeSortData, 0, n - 1);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "\nParallel Merge Sort Result: ";
+    printArray(mergeSortData);
+    std::cout << "Execution Time: " << elapsed.count() << " seconds\n";
+
+    // Parallel Quick Sort
+    std::vector<int> quickSortData = data;
+    start = std::chrono::high_resolution_clock::now();
+    parallelQuickSort(quickSortData, 0, n - 1);
+    end = std::chrono::high_resolution_clock::now();
+    elapsed = end - start;
+    std::cout << "\nParallel Quick Sort Result: ";
+    printArray(quickSortData);
+    std::cout << "Execution Time: " << elapsed.count() << " seconds\n";
+
+    // Parallel Bitonic Sort
+    std::vector<int> bitonicSortData = data;
+    int paddedSize = 1;
+    while (paddedSize < n) paddedSize *= 2;
+    bitonicSortData.resize(paddedSize, INT_MAX);  // Pad with large values if necessary
+
+    start = std::chrono::high_resolution_clock::now();
+    bitonicSort(bitonicSortData, 0, paddedSize, true);
+    end = std::chrono::high_resolution_clock::now();
+    elapsed = end - start;
+    
+    bitonicSortData.resize(n);  // Remove padding for output
+    std::cout << "\nParallel Bitonic Sort Result: ";
+    printArray(bitonicSortData);
+    std::cout << "Execution Time: " << elapsed.count() << " seconds\n";
+
+    return 0;
+}
